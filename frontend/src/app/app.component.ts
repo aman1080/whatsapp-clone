@@ -2,167 +2,245 @@ import { Component, OnDestroy, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common'; import { FormsModule } from '@angular/forms'; import { Subscription } from 'rxjs';
 import { ChatService, User, Chat } from './chat.service';
 import { Message } from './chat.model';
+import { AuthService } from './auth.service';
 
 
 
 @Component({
-  selector: 'app-root',
-  standalone: true,
-  imports: [CommonModule, FormsModule],
-  templateUrl: './app.component.html',
-  styleUrl: './app.component.css'
+    selector: 'app-root',
+    standalone: true,
+    imports: [CommonModule, FormsModule],
+    templateUrl: './app.component.html',
+    styleUrl: './app.component.css'
 })
 export class AppComponent implements OnInit, OnDestroy {
 
-  me?: { userId: number; displayName?: string };
+    me?: { userId: number; displayName?: string };
 
-  chats: Chat[] = [];
-  users: User[] = [];
-  messages: Message[] = [];
+    page: 'login' | 'register' | 'chat' = 'login';
 
-  active?: Chat;
-  draft = '';
-  searchText = '';
-  error = '';
+    email = '';
+    password = '';
+    displayName = '';
+    authError = '';
+    authLoading = false;
 
-  groupName = '';
-  selectedMembers: number[] = [];
+    chats: Chat[] = [];
+    users: User[] = [];
+    messages: Message[] = [];
 
-  private sub?: Subscription;
+    active?: Chat;
+    draft = '';
+    searchText = '';
+    error = '';
 
-  constructor(
-    private chat: ChatService
-  ) {}
+    groupName = '';
+    selectedMembers: number[] = [];
 
-  ngOnInit(): void {
-    const savedUser = localStorage.getItem('chat_user');
+    private sub?: Subscription;
 
-    if (savedUser) {
-      try {
-        this.me = JSON.parse(savedUser);
-      } catch {
+    constructor(
+        private chat: ChatService,
+        private auth: AuthService
+    ) { }
+
+    ngOnInit(): void {
+        const savedUser = localStorage.getItem('chat_user');
+
+        if (savedUser) {
+            try {
+                this.me = JSON.parse(savedUser);
+            } catch {
+                this.me = undefined;
+            }
+        }
+
+        this.refreshChats();
+
+        this.chat.users().subscribe({
+            next: users => this.users = users,
+            error: () => this.error = 'Could not load users'
+        });
+
+        // Keep your existing message subscription here if your
+        // ChatService exposes a messages observable.
+    }
+
+    get filteredChats(): Chat[] {
+        const query = this.searchText.trim().toLowerCase();
+
+        if (!query) {
+            return this.chats;
+        }
+
+        return this.chats.filter(c =>
+            this.title(c).toLowerCase().includes(query)
+        );
+    }
+
+    refreshChats(): void {
+        this.chat.chats().subscribe({
+            next: chats => this.chats = chats,
+            error: () => this.error = 'Could not load chats'
+        });
+    }
+
+    open(c: Chat): void {
+        this.active = c;
+        this.messages = [];
+        this.error = '';
+
+        if (c.type === 'GROUP') {
+            this.chat.subscribeGroup(c.id);
+        }
+
+        this.chat.history(c.id).subscribe({
+            next: messages => this.messages = messages,
+            error: () => this.error = 'Could not load messages'
+        });
+    }
+
+    startPrivate(u: User): void {
+        this.chat.privateChat(u.id).subscribe({
+            next: c => {
+                this.refreshChats();
+                this.open(c);
+            },
+            error: () => this.error = 'Could not create private chat'
+        });
+    }
+
+    createGroup(): void {
+        if (!this.groupName.trim() || !this.selectedMembers.length) {
+            this.error = 'Enter a group name and select at least one member';
+            return;
+        }
+
+        this.chat.group(this.groupName, this.selectedMembers).subscribe({
+            next: c => {
+                this.groupName = '';
+                this.selectedMembers = [];
+                this.refreshChats();
+                this.open(c);
+            },
+            error: () => this.error = 'Could not create group'
+        });
+    }
+
+    toggleMember(id: number, checked: boolean): void {
+        this.selectedMembers = checked
+            ? [...this.selectedMembers, id]
+            : this.selectedMembers.filter(x => x !== id);
+    }
+
+    send(): void {
+        const value = this.draft.trim();
+
+        if (!this.active || !value) {
+            return;
+        }
+
+        try {
+            this.chat.send(this.active.id, value);
+            this.draft = '';
+            this.error = '';
+        } catch {
+            this.error = 'Connecting to chat server. Please retry in a moment.';
+        }
+    }
+
+    title(c: Chat): string {
+        if (c.type === 'GROUP') {
+            return c.name || 'Group';
+        }
+
+        return c.members.find(m => m.id !== this.me?.userId)?.displayName
+            || 'Private chat';
+    }
+
+    logout(): void {
+        this.chat.disconnect();
+        this.sub?.unsubscribe();
+
+        localStorage.removeItem('chat_token');
+        localStorage.removeItem('chat_user');
+
         this.me = undefined;
-      }
+        this.active = undefined;
+        this.messages = [];
+        this.chats = [];
     }
 
-    this.refreshChats();
-
-    this.chat.users().subscribe({
-      next: users => this.users = users,
-      error: () => this.error = 'Could not load users'
-    });
-
-    // Keep your existing message subscription here if your
-    // ChatService exposes a messages observable.
-  }
-
-  get filteredChats(): Chat[] {
-    const query = this.searchText.trim().toLowerCase();
-
-    if (!query) {
-      return this.chats;
+    ngOnDestroy(): void {
+        this.sub?.unsubscribe();
+        this.chat.disconnect();
     }
 
-    return this.chats.filter(c =>
-      this.title(c).toLowerCase().includes(query)
-    );
-  }
+    login(): void {
+        this.authError = '';
 
-  refreshChats(): void {
-    this.chat.chats().subscribe({
-      next: chats => this.chats = chats,
-      error: () => this.error = 'Could not load chats'
-    });
-  }
+        if (!this.email.trim() || !this.password) {
+            this.authError = 'Enter your email and password.';
+            return;
+        }
 
-  open(c: Chat): void {
-    this.active = c;
-    this.messages = [];
-    this.error = '';
+        this.authLoading = true;
 
-    if (c.type === 'GROUP') {
-      this.chat.subscribeGroup(c.id);
+        this.auth.login(this.email.trim(), this.password).subscribe({
+            next: response => {
+                this.me = {
+                    userId: response.userId,
+                    displayName: response.displayName
+                };
+                this.page = 'chat';
+                this.refreshChats();
+                this.authLoading = false;
+            },
+            error: err => {
+                this.authError = err.error?.message || 'Login failed. Check your credentials.';
+                this.authLoading = false;
+            }
+        });
     }
 
-    this.chat.history(c.id).subscribe({
-      next: messages => this.messages = messages,
-      error: () => this.error = 'Could not load messages'
-    });
-  }
+    register(): void {
+        this.authError = '';
 
-  startPrivate(u: User): void {
-    this.chat.privateChat(u.id).subscribe({
-      next: c => {
-        this.refreshChats();
-        this.open(c);
-      },
-      error: () => this.error = 'Could not create private chat'
-    });
-  }
+        if (!this.displayName.trim() || !this.email.trim() || !this.password) {
+            this.authError = 'Complete all fields.';
+            return;
+        }
 
-  createGroup(): void {
-    if (!this.groupName.trim() || !this.selectedMembers.length) {
-      this.error = 'Enter a group name and select at least one member';
-      return;
+        this.authLoading = true;
+
+        this.auth.register(
+            this.displayName.trim(),
+            this.email.trim(),
+            this.password
+        ).subscribe({
+            next: response => {
+                this.me = {
+                    userId: response.userId,
+                    displayName: response.displayName
+                };
+                this.page = 'chat';
+                this.refreshChats();
+                this.authLoading = false;
+            },
+            error: err => {
+                this.authError = err.error?.message || 'Registration failed.';
+                this.authLoading = false;
+            }
+        });
     }
 
-    this.chat.group(this.groupName, this.selectedMembers).subscribe({
-      next: c => {
-        this.groupName = '';
-        this.selectedMembers = [];
-        this.refreshChats();
-        this.open(c);
-      },
-      error: () => this.error = 'Could not create group'
-    });
-  }
-
-  toggleMember(id: number, checked: boolean): void {
-    this.selectedMembers = checked
-      ? [...this.selectedMembers, id]
-      : this.selectedMembers.filter(x => x !== id);
-  }
-
-  send(): void {
-    const value = this.draft.trim();
-
-    if (!this.active || !value) {
-      return;
+    showLogin(): void {
+        this.page = 'login';
+        this.authError = '';
     }
 
-    try {
-      this.chat.send(this.active.id, value);
-      this.draft = '';
-      this.error = '';
-    } catch {
-      this.error = 'Connecting to chat server. Please retry in a moment.';
+    showRegister(): void {
+        this.page = 'register';
+        this.authError = '';
     }
-  }
-
-  title(c: Chat): string {
-    if (c.type === 'GROUP') {
-      return c.name || 'Group';
-    }
-
-    return c.members.find(m => m.id !== this.me?.userId)?.displayName
-      || 'Private chat';
-  }
-
-  logout(): void {
-    this.chat.disconnect();
-    this.sub?.unsubscribe();
-
-    localStorage.removeItem('chat_token');
-    localStorage.removeItem('chat_user');
-
-    this.me = undefined;
-    this.active = undefined;
-    this.messages = [];
-    this.chats = [];
-  }
-
-  ngOnDestroy(): void {
-    this.sub?.unsubscribe();
-    this.chat.disconnect();
-  }
 }

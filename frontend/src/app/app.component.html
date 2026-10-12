@@ -1,106 +1,137 @@
-<div class="chat-app">
-  <aside class="sidebar">
-    <header class="sidebar-header">
-      <h2>Chats</h2>
-      <button type="button" (click)="logout()">Logout</button>
-    </header>
+<!-- Login page -->
+<div class="auth-page" *ngIf="page === 'login'">
+  <div class="auth-card">
+    <div class="auth-logo">C</div>
+    <h1>Welcome back</h1>
+    <p class="auth-subtitle">Sign in to continue chatting</p>
 
-    <input
-      type="search"
-      placeholder="Search chats..."
-      [(ngModel)]="searchText"
-      class="search-input"
-    />
+    <form (ngSubmit)="login()">
+      <label>Email address</label>
+      <input type="email" name="email" [(ngModel)]="email" placeholder="you@example.com" required />
 
-    <section class="chat-list">
-      <button
-        type="button"
-        class="chat-item"
-        *ngFor="let c of chats"
-        (click)="open(c)"
-        [class.active]="active?.id === c.id"
-      >
-        <span class="avatar">{{ title(c).charAt(0).toUpperCase() }}</span>
-        <span class="chat-info">
-          <strong>{{ title(c) }}</strong>
-          <small>{{ c.type === 'GROUP' ? 'Group conversation' : 'Private conversation' }}</small>
-        </span>
+      <label>Password</label>
+      <input type="password" name="password" [(ngModel)]="password" placeholder="Enter your password" required />
+
+      <p class="auth-error" *ngIf="authError">{{ authError }}</p>
+
+      <button class="auth-submit" type="submit" [disabled]="authLoading">
+        {{ authLoading ? 'Signing in...' : 'Sign in' }}
       </button>
-    </section>
+    </form>
 
-    <section class="new-chat">
-      <h3>Start a private chat</h3>
-      <button
-        type="button"
-        *ngFor="let u of users"
-        (click)="startPrivate(u)"
-      >
-        {{ u.displayName }}
+    <p class="auth-switch">
+      Don't have an account?
+      <button type="button" (click)="showRegister()">Create account</button>
+    </p>
+  </div>
+</div>
+
+<!-- Registration page -->
+<div class="auth-page" *ngIf="page === 'register'">
+  <div class="auth-card">
+    <div class="auth-logo">C</div>
+    <h1>Create account</h1>
+    <p class="auth-subtitle">Join the conversation</p>
+
+    <form (ngSubmit)="register()">
+      <label>Full name</label>
+      <input type="text" name="displayName" [(ngModel)]="displayName" placeholder="Your name" required />
+
+      <label>Email address</label>
+      <input type="email" name="email" [(ngModel)]="email" placeholder="you@example.com" required />
+
+      <label>Password</label>
+      <input type="password" name="password" [(ngModel)]="password" placeholder="Create a password" required />
+
+      <p class="auth-error" *ngIf="authError">{{ authError }}</p>
+
+      <button class="auth-submit" type="submit" [disabled]="authLoading">
+        {{ authLoading ? 'Creating account...' : 'Create account' }}
       </button>
-    </section>
+    </form>
 
-    <section class="new-group">
-      <h3>Create a group</h3>
-      <input
-        type="text"
-        placeholder="Group name"
-        [(ngModel)]="groupName"
-      />
+    <p class="auth-switch">
+      Already registered?
+      <button type="button" (click)="showLogin()">Sign in</button>
+    </p>
+  </div>
+</div>
 
-      <label *ngFor="let u of users">
-        <input
-          type="checkbox"
-          [checked]="selectedMembers.includes(u.id)"
-          (change)="toggleMember(u.id, $any($event.target).checked)"
-        />
-        {{ u.displayName }}
-      </label>
-
-      <button type="button" (click)="createGroup()">Create group</button>
-    </section>
-  </aside>
-
-  <main class="conversation">
-    <ng-container *ngIf="active; else emptyChat">
-      <header class="conversation-header">
-        <div class="avatar">{{ title(active).charAt(0).toUpperCase() }}</div>
-        <div>
-          <strong>{{ title(active) }}</strong>
-          <small>{{ active.type === 'GROUP' ? 'Group chat' : 'Private chat' }}</small>
-        </div>
+<!-- Existing chat interface -->
+<div class="chat-app" *ngIf="page === 'chat'">
+  <div class="chat-app">
+    <aside class="sidebar">
+      <header class="sidebar-header">
+        <h2>Chats</h2>
+        <button type="button" (click)="logout()">Logout</button>
       </header>
 
-      <div class="error-message" *ngIf="error">{{ error }}</div>
+      <input type="search" placeholder="Search chats..." [(ngModel)]="searchText" class="search-input" />
 
-      <section class="messages">
-        <div
-          *ngFor="let m of messages"
-          class="message"
-          [class.outgoing]="m.senderId === me?.userId"
-        >
-          <small *ngIf="m.senderName">{{ m.senderName }}</small>
-          <p>{{ m.content }}</p>
-          <time *ngIf="m.createdAt">{{ m.createdAt | date:'shortTime' }}</time>
-        </div>
+      <section class="chat-list">
+        <button type="button" class="chat-item" *ngFor="let c of chats" (click)="open(c)"
+          [class.active]="active?.id === c.id">
+          <span class="avatar">{{ title(c).charAt(0).toUpperCase() }}</span>
+          <span class="chat-info">
+            <strong>{{ title(c) }}</strong>
+            <small>{{ c.type === 'GROUP' ? 'Group conversation' : 'Private conversation' }}</small>
+          </span>
+        </button>
       </section>
 
-      <form class="message-composer" (ngSubmit)="send()">
-        <input
-          type="text"
-          name="draft"
-          [(ngModel)]="draft"
-          placeholder="Type a message..."
-          autocomplete="off"
-        />
-        <button type="submit" [disabled]="!draft.trim()">Send</button>
-      </form>
-    </ng-container>
+      <section class="new-chat">
+        <h3>Start a private chat</h3>
+        <button type="button" *ngFor="let u of users" (click)="startPrivate(u)">
+          {{ u.displayName }}
+        </button>
+      </section>
 
-    <ng-template #emptyChat>
-      <div class="empty-state">
-        <h2>Welcome to Chat</h2>
-        <p>Select a conversation to start messaging.</p>
-      </div>
-    </ng-template>
-  </main>
+      <section class="new-group">
+        <h3>Create a group</h3>
+        <input type="text" placeholder="Group name" [(ngModel)]="groupName" />
+
+        <label *ngFor="let u of users">
+          <input type="checkbox" [checked]="selectedMembers.includes(u.id)"
+            (change)="toggleMember(u.id, $any($event.target).checked)" />
+          {{ u.displayName }}
+        </label>
+
+        <button type="button" (click)="createGroup()">Create group</button>
+      </section>
+    </aside>
+
+    <main class="conversation">
+      <ng-container *ngIf="active; else emptyChat">
+        <header class="conversation-header">
+          <div class="avatar">{{ title(active).charAt(0).toUpperCase() }}</div>
+          <div>
+            <strong>{{ title(active) }}</strong>
+            <small>{{ active.type === 'GROUP' ? 'Group chat' : 'Private chat' }}</small>
+          </div>
+        </header>
+
+        <div class="error-message" *ngIf="error">{{ error }}</div>
+
+        <section class="messages">
+          <div *ngFor="let m of messages" class="message" [class.outgoing]="m.senderId === me?.userId">
+            <small *ngIf="m.senderName">{{ m.senderName }}</small>
+            <p>{{ m.content }}</p>
+            <time *ngIf="m.createdAt">{{ m.createdAt | date:'shortTime' }}</time>
+          </div>
+        </section>
+
+        <form class="message-composer" (ngSubmit)="send()">
+          <input type="text" name="draft" [(ngModel)]="draft" placeholder="Type a message..." autocomplete="off" />
+          <button type="submit" [disabled]="!draft.trim()">Send</button>
+        </form>
+      </ng-container>
+
+      <ng-template #emptyChat>
+        <div class="empty-state">
+          <h2>Welcome to Chat</h2>
+          <p>Select a conversation to start messaging.</p>
+        </div>
+      </ng-template>
+    </main>
+  </div>
 </div>
