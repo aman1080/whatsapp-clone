@@ -1,0 +1,45 @@
+
+<div class="chat-container">
+  <div class="chat-header">
+    <h2>Chat</h2>
+    <span>Conversation #{{ conversationId }}</span>
+  </div>
+
+  <div class="messages">
+    <div
+      *ngFor="let message of messages"
+      class="message"
+      [class.own-message]="message.senderId === currentUserId"
+    >
+      <div class="sender">{{ message.senderName }}</div>
+
+      <div class="message-content">
+        {{ message.content }}
+      </div>
+
+      <div class="message-time">
+        {{ message.sentAt | date:'shortTime' }}
+      </div>
+    </div>
+
+    <div *ngIf="messages.length === 0" class="empty-state">
+      No messages yet. Start the conversation!
+    </div>
+  </div>
+
+  <form class="message-form" (ngSubmit)="sendMessage()">
+    <input
+      type="text"
+      name="message"
+      [(ngModel)]="newMessage"
+      placeholder="Type a message..."
+      maxlength="5000"
+      autocomplete="off"
+      required
+    />
+
+    <button type="submit" [disabled]="!newMessage.trim()">
+      Send
+    </button>
+  </form>
+</div>

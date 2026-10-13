@@ -1,10 +1,18 @@
+
 import { Component, OnDestroy, OnInit } from '@angular/core';
-import { CommonModule } from '@angular/common'; import { FormsModule } from '@angular/forms'; import { Subscription } from 'rxjs';
-import { ChatService, User, Chat } from './chat.service';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { Subscription } from 'rxjs';
+
+import {
+    ChatService,
+    User,
+    Chat,
+    ChatMessage
+} from './chat.service';
+
 import { Message } from './chat.model';
 import { AuthService } from './auth.service';
-
-
 
 @Component({
     selector: 'app-root',
@@ -46,6 +54,7 @@ export class AppComponent implements OnInit, OnDestroy {
 
     ngOnInit(): void {
         const savedUser = localStorage.getItem('chat_user');
+        const savedToken = localStorage.getItem('chat_token');
 
         if (savedUser) {
             try {
@@ -55,15 +64,49 @@ export class AppComponent implements OnInit, OnDestroy {
             }
         }
 
+        // Listen for incoming messages once for this component.
+        this.sub = this.chat.messages$.subscribe(
+            (chatMessage: ChatMessage) => {
+                // Only display messages for the currently open conversation.
+                if (this.active?.id !== chatMessage.chatId) {
+                    return;
+                }
+
+                // Avoid adding a duplicate if the same message is delivered twice.
+                const alreadyExists = this.messages.some(
+                    message => message.id === chatMessage.id
+                );
+
+                if (alreadyExists) {
+                    return;
+                }
+
+                // Map ChatMessage into the existing UI Message model.
+                this.messages.push({
+                    id: chatMessage.id,
+                    chatId: chatMessage.chatId,
+                    senderId: chatMessage.senderId,
+                    senderName: chatMessage.senderName,
+                    content: chatMessage.content,
+                    sentAt: chatMessage.sentAt
+                } as Message);
+            }
+        );
+
+        if (this.me && savedToken) {
+            this.page = 'chat';
+            this.chat.connect(savedToken);
+            this.loadChatData();
+        }
+    }
+
+    private loadChatData(): void {
         this.refreshChats();
 
         this.chat.users().subscribe({
             next: users => this.users = users,
             error: () => this.error = 'Could not load users'
         });
-
-        // Keep your existing message subscription here if your
-        // ChatService exposes a messages observable.
     }
 
     get filteredChats(): Chat[] {
@@ -81,7 +124,7 @@ export class AppComponent implements OnInit, OnDestroy {
     refreshChats(): void {
         this.chat.chats().subscribe({
             next: chats => this.chats = chats,
-            error: () => this.error = 'Could not load chats'
+            error: () => this.error = 'Could not load conversations'
         });
     }
 
@@ -90,12 +133,24 @@ export class AppComponent implements OnInit, OnDestroy {
         this.messages = [];
         this.error = '';
 
-        if (c.type === 'GROUP') {
-            this.chat.subscribeGroup(c.id);
-        }
+        // Subscribe to both DIRECT and GROUP conversations.
+        this.chat.subscribeChat(c.id);
 
         this.chat.history(c.id).subscribe({
-            next: messages => this.messages = messages,
+            next: messages => {
+                const incoming = this.messages;
+                const combined = [...messages, ...incoming];
+
+                const unique = new Map<number, Message>();
+
+                for (const message of combined) {
+                    if (message.id !== undefined) {
+                        unique.set(message.id, message);
+                    }
+                }
+
+                this.messages = Array.from(unique.values());
+            },
             error: () => this.error = 'Could not load messages'
         });
     }
@@ -106,25 +161,21 @@ export class AppComponent implements OnInit, OnDestroy {
                 this.refreshChats();
                 this.open(c);
             },
-            error: () => this.error = 'Could not create private chat'
+            error: err => {
+                console.error(
+                    'Could not create private conversation:',
+                    err
+                );
+
+                this.error = err.error?.message
+                    || 'Could not create private chat';
+            }
         });
     }
 
     createGroup(): void {
-        if (!this.groupName.trim() || !this.selectedMembers.length) {
-            this.error = 'Enter a group name and select at least one member';
-            return;
-        }
-
-        this.chat.group(this.groupName, this.selectedMembers).subscribe({
-            next: c => {
-                this.groupName = '';
-                this.selectedMembers = [];
-                this.refreshChats();
-                this.open(c);
-            },
-            error: () => this.error = 'Could not create group'
-        });
+        this.error =
+            'Group chat is not supported by the backend yet.';
     }
 
     toggleMember(id: number, checked: boolean): void {
@@ -144,8 +195,11 @@ export class AppComponent implements OnInit, OnDestroy {
             this.chat.send(this.active.id, value);
             this.draft = '';
             this.error = '';
-        } catch {
-            this.error = 'Connecting to chat server. Please retry in a moment.';
+        } catch (err) {
+            console.error('Could not send message:', err);
+
+            this.error =
+                'Connecting to chat server. Please retry in a moment.';
         }
     }
 
@@ -154,13 +208,15 @@ export class AppComponent implements OnInit, OnDestroy {
             return c.name || 'Group';
         }
 
-        return c.members.find(m => m.id !== this.me?.userId)?.displayName
-            || 'Private chat';
+        return c.members?.find(
+            m => m.id !== this.me?.userId
+        )?.displayName || c.name || 'Private chat';
     }
 
     logout(): void {
         this.chat.disconnect();
         this.sub?.unsubscribe();
+        this.sub = undefined;
 
         localStorage.removeItem('chat_token');
         localStorage.removeItem('chat_user');
@@ -169,6 +225,11 @@ export class AppComponent implements OnInit, OnDestroy {
         this.active = undefined;
         this.messages = [];
         this.chats = [];
+        this.users = [];
+        this.draft = '';
+        this.error = '';
+        this.authError = '';
+        this.page = 'login';
     }
 
     ngOnDestroy(): void {
@@ -192,12 +253,22 @@ export class AppComponent implements OnInit, OnDestroy {
                     userId: response.userId,
                     displayName: response.displayName
                 };
+
+                localStorage.setItem('chat_token', response.token);
+                localStorage.setItem(
+                    'chat_user',
+                    JSON.stringify(this.me)
+                );
+
                 this.page = 'chat';
-                this.refreshChats();
+                this.chat.connect(response.token);
+                this.loadChatData();
                 this.authLoading = false;
             },
             error: err => {
-                this.authError = err.error?.message || 'Login failed. Check your credentials.';
+                this.authError = err.error?.message
+                    || 'Login failed. Check your credentials.';
+
                 this.authLoading = false;
             }
         });
@@ -206,7 +277,11 @@ export class AppComponent implements OnInit, OnDestroy {
     register(): void {
         this.authError = '';
 
-        if (!this.displayName.trim() || !this.email.trim() || !this.password) {
+        if (
+            !this.displayName.trim()
+            || !this.email.trim()
+            || !this.password
+        ) {
             this.authError = 'Complete all fields.';
             return;
         }
@@ -223,12 +298,22 @@ export class AppComponent implements OnInit, OnDestroy {
                     userId: response.userId,
                     displayName: response.displayName
                 };
+
+                localStorage.setItem('chat_token', response.token);
+                localStorage.setItem(
+                    'chat_user',
+                    JSON.stringify(this.me)
+                );
+
                 this.page = 'chat';
-                this.refreshChats();
+                this.chat.connect(response.token);
+                this.loadChatData();
                 this.authLoading = false;
             },
             error: err => {
-                this.authError = err.error?.message || 'Registration failed.';
+                this.authError = err.error?.message
+                    || 'Registration failed.';
+
                 this.authLoading = false;
             }
         });

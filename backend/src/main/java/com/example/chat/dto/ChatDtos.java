@@ -1,3 +1,0 @@
-package com.example.chat.dto;
-import jakarta.validation.constraints.*; import java.time.Instant; import java.util.List;
-public final class ChatDtos { private ChatDtos(){} public record PrivateChatRequest(@NotNull Long otherUserId){} public record GroupChatRequest(@NotBlank @Size(max=100) String name,@NotEmpty List<@NotNull Long> memberIds){} public record ChatSummary(Long id,String type,String name,List<Member> members,Instant createdAt){} public record Member(Long id,String displayName,String email){} public record MessageRequest(@NotNull Long chatId,@NotBlank @Size(max=4000) String content){} public record MessageResponse(Long id,Long chatId,Long senderId,String senderName,String content,Instant sentAt){} }

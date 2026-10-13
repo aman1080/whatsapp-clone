@@ -1,0 +1,28 @@
+
+  spring:
+    application:
+      name: chat-backend
+
+    datasource:
+      url: jdbc:mysql://localhost:3306/whatsapp_chat
+      username: root
+      password: root
+      driver-class-name: com.mysql.cj.jdbc.Driver
+
+    jpa:
+      hibernate:
+        ddl-auto: update
+      show-sql: true
+      properties:
+        hibernate:
+          format_sql: true
+
+  server:
+    port: 8080
+
+  jwt:
+    secret: gdsfgsdfgsdsdfgsdfngkshdjfhgskjdahsgdjasdhkfahsdvbfajsbdhvfabsdhfabvsdjfabshdfakjhds
+    expiration-ms: 86400000
+  logging:
+    level:
+      org.springframework.security: TRACE
